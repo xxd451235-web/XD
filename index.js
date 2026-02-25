@@ -4,7 +4,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.get("/", (req, res) => {
-  res.send("65 WPM Hızlı İnsansı Mod Aktif!");
+  res.send("Hata Korumalı 65 WPM Sistemi Aktif!");
 });
 
 app.listen(PORT, () => {
@@ -16,7 +16,7 @@ const CHANNEL_IDS = process.env.CHANNEL_IDS;
 const MESSAGE = process.env.MESSAGE;
 
 if (!TOKEN || !CHANNEL_IDS || !MESSAGE) {
-    console.error("HATA: Değişkenler eksik! Render panelini kontrol et.");
+    console.error("HATA: Değişkenler eksik!");
 } else {
     const channelList = CHANNEL_IDS.split(",").map(c => c.trim());
     
@@ -24,18 +24,15 @@ if (!TOKEN || !CHANNEL_IDS || !MESSAGE) {
         while (true) { 
             for (const channelId of channelList) {
                 try {
-                    // 1. "Yazıyor..." animasyonunu gönder
+                    // 1. "Yazıyor..." animasyonu
                     await axios.post(
                         `https://discord.com/api/v9/channels/${channelId}/typing`,
                         {},
                         { headers: { "Authorization": TOKEN } }
                     );
 
-                    // 2. 65 WPM HESABI: Harf başına 185ms bekleme
-                    // (60.000ms / (65 kelime * 5 harf)) = ~185ms
+                    // 2. 65 WPM Yazma Süresi
                     const typingTime = MESSAGE.length * 185;
-                    console.log(`[${channelId}] 65 WPM hızında yazılıyor... (${Math.round(typingTime)}ms)`);
-                    
                     await new Promise(resolve => setTimeout(resolve, typingTime));
 
                     // 3. Mesajı Gönder
@@ -44,14 +41,22 @@ if (!TOKEN || !CHANNEL_IDS || !MESSAGE) {
                         { content: MESSAGE },
                         { headers: { "Authorization": TOKEN } }
                     );
-                    console.log(`[${channelId}] ✅ Mesaj gönderildi.`);
+                    console.log(`[${channelId}] ✅ Başarılı.`);
 
-                    // 4. Kanal geçiş aralığı (0.5 saniye dinlenme)
-                    await new Promise(resolve => setTimeout(resolve, 500));
+                    // 4. GÜVENLİK PAYI: Kanal değiştirmeden önce 2 saniye bekle
+                    // 429 hatalarını önlemek için bu süre kritiktir.
+                    await new Promise(resolve => setTimeout(resolve, 2000));
 
                 } catch (err) {
-                    console.error(`[${channelId}] Hata: ${err.response?.status}. 5sn sonra devam...`);
-                    await new Promise(resolve => setTimeout(resolve, 5000));
+                    if (err.response?.status === 429) {
+                        // Discord "Dur" dediğinde 15 saniye mola ver
+                        const retryAfter = (err.response.data.retry_after * 1000) || 15000;
+                        console.error(`[${channelId}] ⚠️ Hız sınırı! ${Math.round(retryAfter/1000)}sn bekleniyor...`);
+                        await new Promise(resolve => setTimeout(resolve, retryAfter));
+                    } else {
+                        console.error(`[${channelId}] ❌ Hata: ${err.response?.status}. 5sn sonra devam...`);
+                        await new Promise(resolve => setTimeout(resolve, 5000));
+                    }
                 }
             }
         }
